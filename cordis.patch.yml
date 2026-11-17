@@ -1,0 +1,15 @@
+# dsh-inherit-compression — profile bundle patch layer.
+#
+# 把插件作为一条普通的 Cordis 行挂进目标 profile（包 main → lib/index.js 为宿主半身）。
+# 包里的 dsh.client 元数据会被 modules 那一半扫到，它的客户端半身
+# （exports["./client"] → lib/client.bundle.js）在该行启用时被自动打进 Web 客户端。
+#
+# 安装：
+#   dsh plugin --profile <name> add dsh-inherit-compression
+# （手动：把 dsh-inherit-compression 加进 profile 的 dependencies 与 dsh.profile.bundles，
+#  然后在 profile 目录跑 pnpm install）
+# 安装或移除后重启 DSH Desktop。
+
+- insert:
+    - id: inherit-compression
+      name: dsh-inherit-compression

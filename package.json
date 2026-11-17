@@ -1,0 +1,89 @@
+{
+  "name": "dsh-inherit-compression",
+  "description": "dsh-retrace 的分支版：保留回溯（撤回/编辑重发/重新生成）里能用的部分，并加上会话继承（锚点 → 尾部压缩 → 就地撤回 → 记忆注入）",
+  "version": "0.4.150",
+  "packageManager": "pnpm@11.7.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.bundle.js"
+    },
+    "./host-core": {
+      "default": "./lib/host-core.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY.md",
+    "build-inherit-client.mjs",
+    "scrub-upstream-name.mjs",
+    "smoke-inherit.mjs",
+    "build/**"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "plugin",
+    "retrace",
+    "inherit",
+    "compaction",
+    "context",
+    "conversation"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    },
+    "compatibility": {
+      "dsh": ">=0.1.5 <0.3.0",
+      "node": ">=20.0.0",
+      "modes": [
+        "desktop",
+        "web"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.7-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.7-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.7-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session": ">=0.1.7-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-storage-domain": ">=0.1.7-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-token-meter": ">=0.1.7-rc.2 <0.3.0",
+    "react": "^18.2.0"
+  },
+  "dependencies": {
+    "dsh-log-contract": "^0.3.18",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/astsbba/dsh-inherit-compression.git"
+  },
+  "homepage": "https://github.com/astsbba/dsh-inherit-compression#readme",
+  "bugs": {
+    "url": "https://github.com/astsbba/dsh-inherit-compression/issues"
+  }
+}

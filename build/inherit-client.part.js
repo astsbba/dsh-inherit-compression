@@ -273,7 +273,7 @@
 
     function SettingsPage() {
       try {
-        var formState = React.useState({ triggerTokens: 600000, provider: '', model: '', prompt: '', injectPrompt: '', maxBlockChars: 4000, recentRounds: 5 })
+        var formState = React.useState({ triggerTokens: 600000, provider: '', model: '', prompt: '', injectPrompt: '', maxBlockChars: 4000, recentRounds: 5, recentCharsPerRound: 500 })
         var form = formState[0]
         var setForm = formState[1]
         var groupsState = React.useState([])
@@ -337,6 +337,7 @@
             injectPrompt: form.injectPrompt || '',
             maxBlockChars: Number(form.maxBlockChars),
             recentRounds: Number(form.recentRounds),
+            recentCharsPerRound: Number(form.recentCharsPerRound),
           }).then(function (out) {
             setBusy(false)
             if (out && out.ok) {
@@ -451,35 +452,55 @@
           )),
           h('div', { key: 'limits' }, Row(
             '篇幅与取材',
-            '压缩后正文最多多少字；每次压完，记忆后面再带几轮原文当近期对话。',
-            h('div', { style: { display: 'flex', gap: 10 } }, [
-              h('div', { key: 'a', style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 } }, [
-                h('div', { key: 'l', style: hintStyle }, '压缩上限字数'),
-                h('input', {
-                  key: 'i',
-                  type: 'number',
-                  step: 100,
-                  min: 500,
-                  max: 100000,
-                  value: form.maxBlockChars == null ? '' : form.maxBlockChars,
-                  onChange: function (e) { set({ maxBlockChars: e.target.value === '' ? '' : Number(e.target.value) }) },
-                  onBlur: function (e) { set({ maxBlockChars: clampNum(e.target.value, 500, 100000) }) },
-                  style: fieldStyle,
-                }),
+            '压缩后正文最多多少字；每次压完，记忆后面再带几轮原文当近期对话，每轮最多带多少字。',
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } }, [
+              h('div', { key: 'row1', style: { display: 'flex', gap: 10 } }, [
+                h('div', { key: 'a', style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 } }, [
+                  h('div', { key: 'l', style: hintStyle }, '压缩上限字数'),
+                  h('input', {
+                    key: 'i',
+                    type: 'number',
+                    step: 100,
+                    min: 500,
+                    max: 100000,
+                    value: form.maxBlockChars == null ? '' : form.maxBlockChars,
+                    onChange: function (e) { set({ maxBlockChars: e.target.value === '' ? '' : Number(e.target.value) }) },
+                    onBlur: function (e) { set({ maxBlockChars: clampNum(e.target.value, 500, 100000) }) },
+                    style: fieldStyle,
+                  }),
+                ]),
+                h('div', { key: 'b', style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 } }, [
+                  h('div', { key: 'l', style: hintStyle }, '近期对话条数'),
+                  h('input', {
+                    key: 'i',
+                    type: 'number',
+                    step: 1,
+                    min: 0,
+                    max: 300,
+                    value: form.recentRounds == null ? '' : form.recentRounds,
+                    onChange: function (e) { set({ recentRounds: e.target.value === '' ? '' : Number(e.target.value) }) },
+                    onBlur: function (e) { set({ recentRounds: clampNum(e.target.value, 0, 300) }) },
+                    style: fieldStyle,
+                  }),
+                ]),
               ]),
-              h('div', { key: 'b', style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 } }, [
-                h('div', { key: 'l', style: hintStyle }, '近期对话条数'),
-                h('input', {
-                  key: 'i',
-                  type: 'number',
-                  step: 1,
-                  min: 0,
-                  max: 300,
-                  value: form.recentRounds == null ? '' : form.recentRounds,
-                  onChange: function (e) { set({ recentRounds: e.target.value === '' ? '' : Number(e.target.value) }) },
-                  onBlur: function (e) { set({ recentRounds: clampNum(e.target.value, 0, 300) }) },
-                  style: fieldStyle,
-                }),
+              h('div', { key: 'row2', style: { display: 'flex', gap: 10 } }, [
+                h('div', { key: 'c', style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 } }, [
+                  h('div', { key: 'l', style: hintStyle }, '每轮最多注入字数'),
+                  h('input', {
+                    key: 'i',
+                    type: 'number',
+                    step: 50,
+                    min: 50,
+                    max: 5000,
+                    value: form.recentCharsPerRound == null ? '' : form.recentCharsPerRound,
+                    onChange: function (e) { set({ recentCharsPerRound: e.target.value === '' ? '' : Number(e.target.value) }) },
+                    onBlur: function (e) { set({ recentCharsPerRound: clampNum(e.target.value, 50, 5000) }) },
+                    style: fieldStyle,
+                  }),
+                  h('div', { key: 'h', style: hintStyle }, '每一轮原文最多带多少字，默认 500；条数×这个值就是注入总量上限。'),
+                ]),
+                h('div', { key: 'd', style: { flex: 1 } }),
               ]),
             ])
           )),

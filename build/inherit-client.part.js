@@ -12,7 +12,7 @@
  * ═══════════════════════════════════════════════════════════════════════ */
 ;(function () {
   var API = '/dsh-inherit-compression/api'
-  var BUILD = 'inherit-57'
+  var BUILD = 'inherit-33'
 
   function report(phase, err) {
     try {
@@ -700,101 +700,9 @@
         //   等待重试模型请求 / 模型请求重试已取消（后面可能跟「（1/3） · 5s」）
         var PATTERN = /^(已重试模型请求|正在重试模型请求|等待重试模型请求|模型请求重试已取消|处理失败|已完成(，用时|$|：|\s)|Completed in)/
         var MARK = 'data-kk-row-hidden'
-        var LOAD_MARK = 'data-kk-loadolder-hidden'
-        // 宿主词表里的分页按钮文案（chat.loadOlder）
-        var LOAD_OLDER = /^(加载更早|载入更早|加载早期|加载之前的消息|Load earlier|Load older)/i
-        var loadOlderBtn = null
         var lastLogged = ''
-        var lastAutoLoadAt = 0
-        var lastLoadHeight = -1
-        var stalled = 0
-        var loadOlderLogged = false
-        var loadOlderLoggedNoScroll = false
 
-        /* 「加载更早」这个按钮不要了：藏起来，改成滚到顶自动接着载。
-         * 靠近顶部就替它点一下（它自己藏着自己点，视觉上就是一路滚上去都有旧消息），
-         * 点完高度没变说明到底了，就别再点。任何会话都适用，不依赖记忆标记。 */
-        function flowBox() {
-          try { return document.querySelector('[data-chat-flow-kind]') } catch (e) { return null }
-        }
-
-        function scrollableAncestor(el) {
-          try {
-            var node = el
-            var guard = 0
-            while (node && node !== document.body && guard < 30) {
-              guard += 1
-              var cs = window.getComputedStyle(node)
-              if (cs && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-                && node.scrollHeight > node.clientHeight + 4) return node
-              node = node.parentElement
-            }
-          } catch (e) { /* 拿不到就当没有 */ }
-          return null
-        }
-
-        function findLoadOlderButton() {
-          if (loadOlderBtn && loadOlderBtn.isConnected) return loadOlderBtn
-          loadOlderBtn = null
-          try {
-            if (typeof document.createTreeWalker !== 'function') return null
-            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null)
-            var node = walker.nextNode()
-            while (node) {
-              var raw = String(node.nodeValue || '').trim()
-              if (raw !== '' && raw.length <= 14 && LOAD_OLDER.test(raw)) {
-                loadOlderBtn = node.parentElement || null
-                if (loadOlderBtn) return loadOlderBtn
-              }
-              node = walker.nextNode()
-            }
-          } catch (e) { /* 忽略 */ }
-          return null
-        }
-
-        /** 藏起来 + 到顶自动替用户点，一直翻到历史开头为止。 */
-        function maintainLoadOlder() {
-          var btn = findLoadOlderButton()
-          if (!btn) return
-          try {
-            btn.setAttribute(LOAD_MARK, '1')
-            btn.style.setProperty('display', 'none', 'important')
-          } catch (e) { /* 忽略 */ }
-          if (!loadOlderLogged) {
-            loadOlderLogged = true
-            report('loadmore', 'found')
-          }
-          var box = flowBox()
-          var scroller = box ? scrollableAncestor(box) : null
-          // 有的版本整个页面就是滚动容器，flow 往上找不到 overflow 容器，这里兜住。
-          if (!scroller) {
-            var se = document.scrollingElement || document.documentElement || null
-            if (se && se.scrollHeight > se.clientHeight + 4) scroller = se
-          }
-          if (!scroller) {
-            if (!loadOlderLoggedNoScroll) {
-              loadOlderLoggedNoScroll = true
-              report('loadmore', 'no-scroller box=' + (box ? 1 : 0))
-            }
-            return
-          }
-          if (scroller.scrollTop > 160) { stalled = 0; return }
-          var now = Date.now()
-          if (now - lastAutoLoadAt < 600) return
-          var height = scroller.scrollHeight
-          if (height === lastLoadHeight) {
-            stalled += 1
-            if (stalled >= 2) return // 点了没变化 = 已经到历史开头
-          } else {
-            stalled = 0
-          }
-          lastLoadHeight = height
-          lastAutoLoadAt = now
-          report('loadmore', 'click top=' + Math.round(scroller.scrollTop) + ' sh=' + height)
-          try { btn.click() } catch (e) { /* 忽略 */ }
-        }
-
-        /** 这一行所在的"那一轮"：优先分组容器，退一步才用整个对话流。 */
+        /** 这一行所在的「那一轮」：优先分组容器，退一步才用整个对话流。 */
         function roundScopeOf(el) {
           try {
             var group = el.closest ? el.closest('[data-chat-group-key]') : null
@@ -809,10 +717,9 @@
         /**
          * 这个作用域里还有没有「活着」的内容行。
          *
-         * 关键教训：**不能拿行高判断**。聊天视图是虚拟滚动的，屏幕外的行量出来就是 0 高，
-         * 那不等于"被撤走了"——上一版就是因为它把所有过程行当成死的，把新一轮的
-         * 「思考分析」「已完成，用时」一起吞了。这里只认两件事：已经被我们收掉的
-         * （打过去重标记）、以及宿主自己隐藏的（computed display/visibility）。
+         * 教训：**不能拿行高判断**。聊天视图是虚拟滚动的，屏幕外的行量出来就是 0 高，
+         * 那不等于"被撤走了"——按高度判会把新一轮的「思考分析」「已完成，用时」当死的收掉。
+         * 这里只认两件事：已经被我们收掉的（有去重标记）、宿主自己隐藏的（computed style）。
          */
         function scopeHasVisibleContent(box, self) {
           if (!box) return true // 找不到作用域就别动，宁可留着
@@ -843,11 +750,8 @@
               // 只要这条会话压过（哪怕已经冻结），残行也该收拾
               if (roots[id] && Number(roots[id].compressions) > 0) { active = true; break }
             }
-            // 分页按钮：任何会话都藏起来、滚到顶自动接着载（不依赖记忆标记）
-            maintainLoadOlder()
-
-            var gate = active && document.querySelectorAll('.dsh-rt-marker-block').length > 0
-            if (!gate) return
+            if (!active) return
+            if (document.querySelectorAll('.dsh-rt-marker-block').length === 0) return
 
             var targets = []
             if (typeof document.createTreeWalker === 'function') {
@@ -861,6 +765,7 @@
             }
 
             var hidden = 0
+            var samples = []
             for (var t = 0; t < targets.length; t += 1) {
               var el = targets[t].parentElement
               if (!el) continue
@@ -881,18 +786,11 @@
               el.setAttribute(MARK, '1')
               try { el.style.setProperty('display', 'none', 'important') } catch (e) { /* 忽略 */ }
               hidden += 1
-            }
-            // 这一屏一共收掉了几行（含以前收的）：收过才管分页按钮，没收过就别打扰它
-            var dead = 0
-            try { dead = document.querySelectorAll('[data-kk-row-hidden="1"]').length } catch (e) { dead = 0 }
-            if (hidden > 0) {
-              // 让宿主重新量一次高度：它按行高记账，内容被摘走之后账本得跟着更新，
-              // 否则它会一直以为"上面还有更早的"。
-              try { window.dispatchEvent(new Event('resize')) } catch (e) { /* 忽略 */ }
+              if (samples.length < 3) samples.push(String(targets[t].nodeValue || '').trim().slice(0, 10))
             }
             if (hidden > 0 && String(hidden) !== lastLogged) {
               lastLogged = String(hidden)
-              report('row-clean', 'hidden=' + hidden + ' dead=' + dead)
+              report('row-clean', 'hidden=' + hidden + ' texts=' + samples.join('/'))
             }
           } catch (e) { /* 一轮扫不到就算了 */ }
         }
@@ -901,14 +799,6 @@
         var timer = setInterval(scan, 1200)
         var observer = null
         var pending = 0
-        // 滚动不会改 DOM，MutationObserver 看不见：单独听一下滚动，滚到顶部时把
-        // 「加载更早」放回来（这是翻旧消息的唯一入口，不能一直按着）。
-        var scrollPending = 0
-        var onScroll = function () {
-          if (scrollPending) return
-          scrollPending = setTimeout(function () { scrollPending = 0; scan() }, 120)
-        }
-        try { window.addEventListener('scroll', onScroll, true) } catch (e) { /* 忽略 */ }
         try {
           observer = new MutationObserver(function () {
             if (pending) return
@@ -920,8 +810,6 @@
         return function () {
           try { clearInterval(timer) } catch (e) { /* 忽略 */ }
           try { if (pending) clearTimeout(pending) } catch (e) { /* 忽略 */ }
-          try { if (scrollPending) clearTimeout(scrollPending) } catch (e) { /* 忽略 */ }
-          try { window.removeEventListener('scroll', onScroll, true) } catch (e) { /* 忽略 */ }
           try { if (observer) observer.disconnect() } catch (e) { /* 忽略 */ }
         }
       } catch (e) {

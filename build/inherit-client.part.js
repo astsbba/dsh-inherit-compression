@@ -12,7 +12,7 @@
  * ═══════════════════════════════════════════════════════════════════════ */
 ;(function () {
   var API = '/dsh-inherit-compression/api'
-  var BUILD = 'inherit-56'
+  var BUILD = 'inherit-57'
 
   function report(phase, err) {
     try {

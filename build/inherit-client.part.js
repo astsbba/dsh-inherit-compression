@@ -12,7 +12,7 @@
  * ═══════════════════════════════════════════════════════════════════════ */
 ;(function () {
   var API = '/dsh-inherit-compression/api'
-  var BUILD = 'inherit-54'
+  var BUILD = 'inherit-55'
 
   function report(phase, err) {
     try {
@@ -709,6 +709,25 @@
          * 宿主就以为上面还有没载入的旧页，把它露出来。只要这一屏归我们管（压过 + 有记忆
          * 标记）并且确实收过行，就把这个按钮按回去；没有收过行的时候不碰它，免得真需要
          * 翻旧消息时点不到。 */
+        /* 「加载更早」是宿主自己的分页按钮——也是你往回翻旧消息的唯一入口，不能整条捂死。
+         * 实际做法：只有「已经收过行 且 你不在顶部」的时候才按住它（这时候它多半是被我们
+         * 摘行导致的误判）；你一旦滚到顶部，立刻把它放回来，照样翻得到旧消息。 */
+        function chatScroller() {
+          try {
+            var anchorEl = document.querySelector('.dsh-rt-marker-block')
+            var node = anchorEl
+            var guard = 0
+            while (node && node !== document.body && guard < 24) {
+              guard += 1
+              var cs = window.getComputedStyle(node)
+              if (cs && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+                && node.scrollHeight > node.clientHeight + 4) return node
+              node = node.parentElement
+            }
+          } catch (e) { /* 拿不到滚动容器就当它在顶部 */ }
+          return null
+        }
+
         function hideLoadOlder() {
           try {
             if (loadOlderEl && loadOlderEl.isConnected) {
@@ -818,7 +837,9 @@
             // 这一屏一共收掉了几行（含以前收的）：收过才管分页按钮，没收过就别打扰它
             var dead = 0
             try { dead = document.querySelectorAll('[data-kk-row-hidden="1"]').length } catch (e) { dead = 0 }
-            if (dead > 0) hideLoadOlder()
+            var scroller = chatScroller()
+            var atTop = !scroller || scroller.scrollTop <= 48
+            if (dead > 0 && !atTop) hideLoadOlder()
             else restoreLoadOlder()
             if (hidden > 0) {
               // 让宿主重新量一次高度：它按行高记账，内容被摘走之后账本得跟着更新，
@@ -836,6 +857,14 @@
         var timer = setInterval(scan, 1200)
         var observer = null
         var pending = 0
+        // 滚动不会改 DOM，MutationObserver 看不见：单独听一下滚动，滚到顶部时把
+        // 「加载更早」放回来（这是翻旧消息的唯一入口，不能一直按着）。
+        var scrollPending = 0
+        var onScroll = function () {
+          if (scrollPending) return
+          scrollPending = setTimeout(function () { scrollPending = 0; scan() }, 120)
+        }
+        try { window.addEventListener('scroll', onScroll, true) } catch (e) { /* 忽略 */ }
         try {
           observer = new MutationObserver(function () {
             if (pending) return
@@ -847,6 +876,8 @@
         return function () {
           try { clearInterval(timer) } catch (e) { /* 忽略 */ }
           try { if (pending) clearTimeout(pending) } catch (e) { /* 忽略 */ }
+          try { if (scrollPending) clearTimeout(scrollPending) } catch (e) { /* 忽略 */ }
+          try { window.removeEventListener('scroll', onScroll, true) } catch (e) { /* 忽略 */ }
           try { if (observer) observer.disconnect() } catch (e) { /* 忽略 */ }
         }
       } catch (e) {

@@ -706,7 +706,13 @@
               if (roots[id] && Number(roots[id].compressions) > 0) { active = true; break }
             }
             if (!active) return
-            if (document.querySelectorAll('.dsh-rt-marker-block').length === 0) return
+            var markers = document.querySelectorAll('.dsh-rt-marker-block')
+            if (markers.length === 0) return
+            // 只收拾「记忆块上面」的残行：那一段是被撤回的旧轮次留下的。
+            // 记忆块下面属于新一轮（包括刚聊完这一轮的「已完成，用时」「思考分析」），
+            // 一律不碰——之前不分位置地收，把正常信息也吞了，这是病根。
+            var lastMarker = markers[markers.length - 1]
+            var FOLLOWING = (typeof Node !== 'undefined' && Node.DOCUMENT_POSITION_FOLLOWING) || 4
 
             var targets = []
             if (typeof document.createTreeWalker === 'function') {
@@ -730,6 +736,9 @@
                 if (pt === '' || pt.length > 60) break
                 el = el.parentElement
               }
+              if (el.contains(lastMarker)) continue
+              // 在记忆块下面（属于新轮次）→ 跳过
+              if (lastMarker.compareDocumentPosition(el) & FOLLOWING) continue
               if (el.getAttribute(MARK) === '1') continue
               el.setAttribute(MARK, '1')
               try { el.style.setProperty('display', 'none', 'important') } catch (e) { /* 忽略 */ }

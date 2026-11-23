@@ -200,6 +200,14 @@ const PATCHES = [
     to: 'setFailure((function(m){return /^HTTP \\d+$/.test(m)?null:(m||t("error.generic"))})(String(error?.message??"")))',
     all: true,
   },
+  {
+    // 「遮蔽占比过大就降级、干脆一条都不藏」这条兜底，整个关掉。
+    // 原因：那会让被遮蔽的行照常显示，而我们已经把它们的内容换成了占位——
+    // 用户看到的就是一串空白、点不开的消息。既然要瘦，就必须配套"该隐就隐"。
+    label: '关掉遮蔽降级（shadowDegraded 恒 false）',
+    from: 'function shadowDegraded(keys,rowCount){return keys!==null&&rowCount>SHADOW_MIN_ROWS_FOR_RATIO&&keys.length/rowCount>SHADOW_SAFETY_RATIO}',
+    to: 'function shadowDegraded(keys,rowCount){return false}',
+  },
 ]
 
 for (const patch of PATCHES) {

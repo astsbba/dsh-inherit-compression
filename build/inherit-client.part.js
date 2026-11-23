@@ -37,7 +37,8 @@
     var subs = new Set()
     var view = { ok: false, roots: {} }
     var timer = null
-    var appCtx = null
+    // 当前会话 id（消息上的按钮顺手记下）：跳锚点按钮拿不到 props 时用它兜底。
+    var lastSessionId = ''
 
     function notify() {
       subs.forEach(function (fn) { try { fn() } catch (e) { /* 单个订阅崩了不影响别人 */ } })
@@ -96,11 +97,177 @@
       return Math.min(hi, Math.max(lo, Math.floor(n)))
     }
 
-    /* ═══ ① 消息行里的继承按钮（纯图标） ═══ */
+    /* ═══ ① 跳回锚点按钮（输入框上方那颗方形按钮） ═══
+     * 为什么要有它：被遮蔽的消息在日志里仍是普通消息，官方翻页照数不误，一页里大半是空壳，
+     * 「加载更多」要点很多次才走到锚点之前。所以给一颗自己的按钮：点一下直接跳到锚点那条消息，
+     * 中间的空白页由官方 loadThrough 在内部翻过去。挂载点用 composer 的 overlay 槽，
+     * 也就是输入框那张卡片里，绝对定位浮到它上方右侧——和你画的位置一致。
+     */
+    var anchorJumpCtx = null
+
+    function AnchorJumpButton(props) {
+      try {
+        var sessionId = String((props && props.sessionId) || lastSessionId || '')
+        var useChat = props && props.useChat
+        var nodes = null
+        try {
+          if (typeof useChat === 'function') nodes = useChat(function (s) { return s && s.nodes })
+        } catch (e) { nodes = null }
+        var nodesRef = React.useRef(nodes)
+        nodesRef.current = nodes
+
+        var hoverState = React.useState(false)
+        var hover = hoverState[0]
+        var setHover = hoverState[1]
+        var busyState = React.useState(false)
+        var busy = busyState[0]
+        var setBusy = busyState[1]
+        var tickPair = React.useState(0)
+        var setTick = tickPair[1]
+
+        React.useEffect(function () { return subscribe(function () { setTick(function (n) { return n + 1 }) }) }, [])
+
+        var root = sessionId && view && view.roots ? view.roots[sessionId] : null
+        var anchorSeq = root && Number.isFinite(Number(root.anchorSeq)) ? Number(root.anchorSeq) : -1
+        var anchorTurn = root && Number.isSafeInteger(Number(root.anchorTurn)) ? Number(root.anchorTurn) : -1
+        if (!(anchorSeq > 0)) return null
+
+        var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms) }) }
+
+        // 主判据：聊天气泡上带着 data-chat-turn（第几轮），锚点属于哪一轮宿主已经算好，
+        // 直接按"这一轮的用户消息"去找那一行，比按内部 key 反查稳。
+        var findRowByTurn = function () {
+          if (!(anchorTurn > 0)) return null
+          try {
+            var exact = document.querySelector('[data-chat-flow-kind="user"][data-chat-turn="' + anchorTurn + '"]')
+            if (exact) return exact
+            var any = document.querySelectorAll('[data-chat-turn="' + anchorTurn + '"]')
+            return any.length > 0 ? any[0] : null
+          } catch (e) { return null }
+        }
+
+        // 备用判据：按节点 key 找（老会话可能没记下轮号）。
+        var findRowByKey = function () {
+          try {
+            var table = nodesRef.current
+            if (!table || typeof keyOfSeqIn !== 'function') return null
+            var key = keyOfSeqIn(table, anchorSeq)
+            if (key === null || key === undefined) return null
+            var k = JSON.stringify(key)
+            return document.querySelector('[data-chat-anchor-key=' + k + '],[data-chat-flow-key=' + k + '],[data-chat-node-key=' + k + ']')
+          } catch (e) { return null }
+        }
+
+        var scrollToRow = function (el) {
+          try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch (e) { try { el.scrollIntoView() } catch (e2) {} }
+          try {
+            el.animate(
+              [{ backgroundColor: 'rgba(77,107,254,0.16)' }, { backgroundColor: 'transparent' }],
+              { duration: 1300, easing: 'ease-out' },
+            )
+          } catch (e) { /* 高亮失败不影响滚动 */ }
+        }
+
+        var storeOf = function () {
+          try {
+            var svc = anchorJumpCtx && anchorJumpCtx.get ? anchorJumpCtx.get('sessions') : null
+            var bound = svc && typeof svc.binding === 'function' ? svc.binding(sessionId) : null
+            return bound && bound.session ? bound.session : null
+          } catch (e) { return null }
+        }
+
+        var jumpToAnchorRow = function () {
+          var store = storeOf()
+          var paged = false
+          var attempt = 0
+          var step = function () {
+            var el = findRowByTurn() || findRowByKey()
+            if (el) { scrollToRow(el); return Promise.resolve(true) }
+            if (attempt >= 30) return Promise.resolve(false)
+            attempt += 1
+            if (!paged && attempt >= 2 && store && typeof store.loadThrough === 'function') {
+              paged = true
+              return Promise.resolve(store.loadThrough(anchorSeq))
+                .catch(function () { return null })
+                .then(function () { return sleep(120) })
+                .then(step)
+            }
+            return sleep(140).then(step)
+          }
+          return step()
+        }
+
+        var onClick = function (event) {
+          try { event.preventDefault(); event.stopPropagation() } catch (e) {}
+          if (busy) return
+          setBusy(true)
+          // 跳转期间先让扫描安静下来，落地后再补一次
+          try { rowQuietUntil = Date.now() + 1500 } catch (e) {}
+          try { if (typeof switchToViewTab === 'function') switchToViewTab('chat') } catch (e) {}
+          var finish = function () {
+            setBusy(false)
+            try { if (typeof rowKick === 'function') rowKick() } catch (e) {}
+          }
+          Promise.resolve(jumpToAnchorRow()).then(finish, function (e) { report('anchorjump:run', e); finish() })
+          setTimeout(finish, 15000)
+        }
+
+        return React.createElement('button', {
+          type: 'button',
+          onClick: onClick,
+          disabled: busy,
+          title: busy ? '正在跳到锚点…' : '跳到锚点',
+          'aria-label': '跳到锚点',
+          'data-inherit-anchor-jump': '1',
+          onMouseEnter: function () { setHover(true) },
+          onMouseLeave: function () { setHover(false) },
+          style: {
+            position: 'absolute',
+            // 位置：输入框右上角外面一点。想再挪就改这两个数（right 越负越靠右，bottom 减得越多越靠下）。
+            right: -54,
+            bottom: 'calc(100% - 95px)',
+            width: 34,
+            height: 34,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            border: 'none',
+            borderRadius: 999,
+            background: hover ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.72)',
+            backdropFilter: 'blur(6px)',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.10)',
+            color: hover ? 'var(--dsw-alias-text-primary, #4b5563)' : 'var(--dsw-alias-text-secondary, #6b7280)',
+            cursor: busy ? 'default' : 'pointer',
+            opacity: busy ? 0.6 : 1,
+            transition: 'background 120ms ease, color 120ms ease',
+          },
+        }, React.createElement('svg', {
+          width: 16,
+          height: 16,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.8,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': true,
+        }, [
+          React.createElement('circle', { key: 'dot', cx: 12, cy: 4.6, r: 2.1 }),
+          React.createElement('path', { key: 'stem', d: 'M12 20v-7.2' }),
+          React.createElement('path', { key: 'head', d: 'M8.6 12.4 12 9l3.4 3.4' }),
+        ]))
+      } catch (e) {
+        report('anchorjump:render', e)
+        return null
+      }
+    }
+
     function InheritButton(props) {
       try {
         var sessionId = props && props.sessionId ? String(props.sessionId) : ''
         var messageId = props && props.messageId ? String(props.messageId) : ''
+        if (sessionId) lastSessionId = sessionId
 
         var tickState = React.useState(0)
         var setTick = tickState[1]
@@ -127,7 +294,7 @@
         var self = roots[sessionId]
         var inheritOn = !!(self && self.enabled)
         var anchoredHere = !!(inheritOn && self.anchorMessageId && self.anchorMessageId === messageId)
-        // 位置由宿主判：它把「锚点之后有哪些消息」直接算成 id 列表发过来，客户端只查表。
+        // 位置由宿主判：它把「锚点之后有哪些消息」算成 id 列表发过来，客户端只查表。
         var afterIdsKnown = !!(inheritOn && self && Array.isArray(self.afterIds))
         var afterIds = afterIdsKnown ? self.afterIds : []
         var afterAnchor = !!(inheritOn && !anchoredHere && afterIds.indexOf(messageId) >= 0)
@@ -572,34 +739,194 @@
       }
     }
 
-    /* ── 「压缩总结已触发」提示：只在真的调了模型压缩之后弹一条，5 秒自己淡出 ── */
-    var compressSeen = {}
+    /* ── 「压缩总结已触发」提示曾在这里：那版弹窗已经不用了（压缩过程由按钮状态和
+     *    设置页的日志面板体现），函数没人调用，一并删掉，别留死代码。 ── */
 
-    function showHintToast(text) {
+    /* ═══ 空壳收尾行：整轮都被遮掉时，把「已完成，用时 N 秒」这些行也藏起来 ═══
+     * 探针取到的实况（2026-11-22）：
+     *   · 「已完成，用时 N 秒」不在 turn-tail 里，它在 **turn-process** 这一层
+     *     （class hE4tRW_root / hE4tRW_label，祖先 div[turn-process]）；
+     *   · 「已重试模型请求（1/5）」是另一种节点，kind = **model-retry**。
+     * 所以判据按"整除"来：把这一轮的兄弟节点全找出来，剔掉装饰性的那几种，
+     * 剩下的内容节点（user / assistant-step / tool-call / context / steering）
+     * **全部不可见**才藏这一行；只要有任何一个看得见就一律不动。
+     * 只在客户端 DOM 上隐藏，不改数据、不改日志、不碰轮步边界。
+     */
+    var ROW_SELECTOR = '[data-chat-flow-kind="turn-process"],[data-chat-flow-kind="turn-tail"],[data-chat-flow-kind="model-retry"]'
+    // 跳锚点那一下会一次性塞进大量历史，扫描先安静一会儿，等这一波过去再扫一次，
+    // 免得"刚加载的行"和"我们的扫描"撞在一起把主线程堵死。
+    var rowQuietUntil = 0
+    // 跳转结束后踢一脚重扫（安静窗口期间不扫，落地后再补一次）
+    var rowKick = null
+    var ROW_HIDE_ID = 'dsh-inherit-tail-css'
+    var ROW_HIDE_CSS = '[data-inherit-hide-row="1"]{display:none!important}'
+    // 这些是装饰/操作行，不算"这一轮的内容"。
+    var DECOR_KINDS = ['turn-process', 'turn-tail', 'model-retry', 'user-actions', 'retrace-reference', 'recall-marker', 'turn-head']
+
+    function initEmptyTailHiding() {
       try {
-        if (typeof document === 'undefined' || !document.body) return
-        var el = document.createElement('div')
-        el.textContent = text
-        el.style.cssText = 'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);z-index:9999;'
-          + 'padding:8px 14px;border-radius:10px;background:rgba(20,20,22,0.88);color:#f2f2f2;'
-          + 'font-size:13px;line-height:20px;box-shadow:0 6px 20px rgba(0,0,0,0.25);'
-          + 'pointer-events:none;opacity:0;transition:opacity 200ms ease;'
-        document.body.appendChild(el)
-        requestAnimationFrame(function () { el.style.opacity = '1' })
-        setTimeout(function () {
-          try {
-            el.style.opacity = '0'
-            setTimeout(function () { try { el.remove() } catch (e) { /* 忽略 */ } }, 250)
-          } catch (e) { /* 忽略 */ }
-        }, 5000)
-      } catch (e) { report('toast', e) }
-    }
+        if (typeof document === 'undefined' || !document.body) return function () {}
+        try {
+          var hasStyle = typeof document.getElementById === 'function' && document.getElementById(ROW_HIDE_ID)
+          if (!hasStyle && document.head && typeof document.createElement === 'function') {
+            var tag = document.createElement('style')
+            tag.id = ROW_HIDE_ID
+            tag.dataset.plugin = 'dsh-inherit-compression'
+            tag.textContent = ROW_HIDE_CSS
+            document.head.appendChild(tag)
+          }
+        } catch (e) { report('row:css', e) }
 
-    
+        var kindOf = function (el) {
+          try { return el.getAttribute ? (el.getAttribute('data-chat-flow-kind') || '') : '' } catch (e) { return '' }
+        }
+
+        var isInvisible = function (el) {
+          try {
+            if (!el || !el.getBoundingClientRect) return true
+            if (el.hidden) return true
+            var cs = window.getComputedStyle(el)
+            if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) return true
+            var rect = el.getBoundingClientRect()
+            return rect.height < 2 && rect.width < 2
+          } catch (e) { return false } // 量不出来按"可见"，绝不误藏
+        }
+
+        // 单遍扫描：顺着聊天列表的兄弟节点走一遍，按「用户消息」切轮，
+        // 每轮只统计一次内容节点是否全不可见，再把结论写给这一轮的收尾行。
+        // 之前是"每行回头翻四百个兄弟"，行数一多就是 O(行×兄弟)，跳转后上千行直接把主线程压死。
+        var lastRun = 0
+        var raf = 0
+        var scan = function () {
+          raf = 0
+          lastRun = Date.now()
+          dirty = false
+          try {
+            if (typeof document.querySelectorAll !== 'function') return
+            var anyRow = document.querySelector(ROW_SELECTOR)
+            if (!anyRow) return
+            var list = anyRow.parentElement
+            if (!list) return
+            var children = list.children
+            // 第一段：只读。current = 这一轮的内容节点是否全不可见；decor = 这一轮待处理的收尾行
+            var plan = []
+            var current = null
+            var decor = []
+            var flush = function () {
+              if (!decor.length) return
+              var hide = current !== null && current.count > 0 && current.visible === 0
+              for (var q = 0; q < decor.length; q += 1) plan.push([decor[q], hide])
+              decor = []
+            }
+            for (var i = 0; i < children.length; i += 1) {
+              var el = children[i]
+              var kind = kindOf(el)
+              if (kind === 'user') {
+                // 新一轮开始
+                flush()
+                current = { count: 0, visible: 0 }
+                continue
+              }
+              if (kind === '') continue
+              if (DECOR_KINDS.indexOf(kind) >= 0) {
+                if (current !== null) decor.push(el)
+                continue
+              }
+              if (current === null) continue // 还没遇到用户消息，不算任何一轮
+              current.count += 1
+              if (!isInvisible(el)) current.visible += 1
+            }
+            flush()
+            // 第二段：只写
+            for (var j = 0; j < plan.length; j += 1) {
+              var row = plan[j][0]
+              var hideIt = plan[j][1]
+              if (hideIt) {
+                if (row.dataset.inheritHideRow !== '1') row.dataset.inheritHideRow = '1'
+              } else if (row.dataset.inheritHideRow === '1') {
+                delete row.dataset.inheritHideRow
+              }
+            }
+          } catch (e) { report('row:scan', e) }
+        }
+
+        // 节流 + 安静窗口：跳转后一秒半内不扫，等官方那波渲染落地再一次扫完。
+        var dirty = true
+        var schedule = function () {
+          dirty = true
+          if (raf) return
+          var now = Date.now()
+          if (now < rowQuietUntil) {
+            raf = setTimeout(function () { raf = 0; schedule() }, rowQuietUntil - now)
+            return
+          }
+          var wait = Math.max(0, 300 - (now - lastRun))
+          if (wait === 0) {
+            try {
+              if (typeof requestAnimationFrame === 'function') {
+                raf = requestAnimationFrame(scan)
+                return
+              }
+            } catch (e) { /* 兜底 */ }
+            setTimeout(scan, 30)
+            return
+          }
+          raf = setTimeout(function () { raf = 0; if (dirty) scan() }, wait)
+        }
+
+        var observer = null
+        try {
+          if (typeof MutationObserver === 'function') {
+            observer = new MutationObserver(schedule)
+            // 只盯结构变化：之前连属性变化也听，等于自己改属性又触发自己，白烧 CPU。
+            observer.observe(document.body, { childList: true, subtree: true })
+          }
+        } catch (e) { report('row:observer', e) }
+
+        var onScroll = function () { schedule() }
+        try { document.addEventListener('scroll', onScroll, { passive: true, capture: true }) } catch (e) {}
+
+        rowKick = schedule
+        scan()
+        for (var d = 0; d < 3; d += 1) setTimeout(scan, 200 * (d + 1))
+
+        return function () {
+          try { if (observer) observer.disconnect() } catch (e) {}
+          try { if (raf) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf); clearTimeout(raf) } } catch (e) {}
+          try { document.removeEventListener('scroll', onScroll, true) } catch (e) {}
+          try {
+            var styleEl = typeof document.getElementById === 'function' ? document.getElementById(ROW_HIDE_ID) : null
+            if (styleEl) styleEl.remove()
+          } catch (e) {}
+        }
+      } catch (e) {
+        report('row:init', e)
+        return function () {}
+      }
+    }
 
     /* ═══ 挂载：等 retrace 自己的 apply 跑完，再往槽里塞我们的两件东西 ═══ */
     function mountInherit(ctx) {
-      try { appCtx = ctx } catch (e) { report('ctx', e) }
+      try { anchorJumpCtx = ctx } catch (e) { /* 忽略 */ }
+
+      try {
+        var disposeRows = initEmptyTailHiding()
+      } catch (e) { report('row:mount', e) }
+
+      try {
+        var mountJump = function () {
+          return ctx.slots.inject('conversation.input.overlay', function () {
+            return ctx.slots.register({
+              name: 'conversation.input.overlay',
+              id: 'inherit-anchor-jump',
+              order: 60,
+              label: '跳到锚点',
+            }, AnchorJumpButton)
+          })
+        }
+        if (typeof ctx.effect === 'function') ctx.effect(mountJump)
+        else mountJump()
+      } catch (e) { report('anchorjump:mount', e) }
 
       try {
         startPoll()
@@ -612,11 +939,6 @@
           })
         }
       } catch (e) { report('poll', e) }
-
-      try {
-        var offEdit = installEditAffordance()
-        if (typeof ctx.effect === 'function') ctx.effect(function () { return offEdit })
-      } catch (e) { report('edit:mount', e) }
 
       try {
         var mountButton = function () {

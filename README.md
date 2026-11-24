@@ -2,11 +2,11 @@
 
 DeepSeek Harness 插件：给长会话做**继承**——到线自动压缩、就地撤回、把记忆交给下一轮。
 
-## 出处与致谢
+## 出处
 
-宿主与客户端骨架来自 [dsh-retrace](https://github.com/yamingmou/dsh-retrace)（v0.4.150，MIT）；
-「会话继承」这一整套——锚点、尾部压缩、就地撤回、记忆注入、设置面板——是本项目新增的。
-上游版权与许可全文见 `LICENSE`，具体改动范围见 `THIRD-PARTY.md`。
+部分机制与界面骨架参考了 [dsh-retrace](https://github.com/yamingmou/dsh-retrace)（v0.4.150，MIT），
+按它的许可保留版权声明；「会话继承」这一整套——锚点、尾部压缩、就地撤回、记忆注入、设置面板——
+是本项目自己实现的。版权与许可全文见 `LICENSE`。
 
 ## 它解决什么
 
@@ -84,4 +84,4 @@ node scrub-upstream-name.mjs    # 需要时：把残留的旧标识再扫一遍
 
 ## 许可
 
-MIT，见 [`LICENSE`](./LICENSE)；基于 dsh-retrace 的修改说明见 [`THIRD-PARTY.md`](./THIRD-PARTY.md)。
+MIT，见 [`LICENSE`](./LICENSE)；出处与第三方声明见 [`THIRD-PARTY.md`](./THIRD-PARTY.md)。

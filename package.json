@@ -1,6 +1,6 @@
 {
   "name": "dsh-inherit-compression",
-  "description": "dsh-retrace 的分支版：保留回溯（撤回/编辑重发/重新生成）里能用的部分，并加上会话继承（锚点 → 尾部压缩 → 就地撤回 → 记忆注入）",
+  "description": "DeepSeek Harness 插件：会话继承与上下文压缩——在消息上立锚点，到线后把其后的对话压成一块记忆并原地撤回原文；另含启动前瘦身与跳回锚点。",
   "version": "0.4.150",
   "packageManager": "pnpm@11.7.0",
   "type": "module",

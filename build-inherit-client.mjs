@@ -208,6 +208,15 @@ const PATCHES = [
     from: 'function shadowDegraded(keys,rowCount){return keys!==null&&rowCount>SHADOW_MIN_ROWS_FOR_RATIO&&keys.length/rowCount>SHADOW_SAFETY_RATIO}',
     to: 'function shadowDegraded(keys,rowCount){return false}',
   },
+  {
+    // 「消息编辑插件」那块设置面板（settings.general.item / OptionsRow）：整块删掉。
+    // 里面七个开关，读档点与产物快照 / AI 摘要 / git 集成 / 读档点保留上限四项的宿主
+    // 实现已经拆了（点了没反应），剩下两项（编辑后显示原提问对照、退出确认）我们也不用。
+    // 同样用 void(...) 让那个 mountSlot 不执行 ⇒ 槽位不再注册，面板彻底消失。
+    label: '消息编辑插件设置面板',
+    from: 'mountSlot("settings.general.item",',
+    to: 'void("settings.general.item",',
+  },
 ]
 
 for (const patch of PATCHES) {

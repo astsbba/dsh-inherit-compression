@@ -905,9 +905,23 @@
       }
     }
 
+    /* ═══ 关掉上游遗留的配置项（面板本身已在构建期整块删掉） ═══
+     * 那块「消息编辑插件」面板在 build-inherit-client.mjs 里已经不再注册，界面上没有了；
+     * 但 localStorage 里可能还留着他以前点开过的旧值（尤其是 closeGuard 打开过就会一直
+     * 装着关闭守卫），所以这里把五个键压成 false，保证行为跟"面板不存在"一致。
+     */
+    function disableUpstreamOptions() {
+      var OFF = { showOriginalInput: false, versioning: false, summary: false, git: false, closeGuard: false }
+      try {
+        if (typeof setConfig === 'function') setConfig(OFF)
+      } catch (e) { report('options:config', e) }
+    }
+
     /* ═══ 挂载：等 retrace 自己的 apply 跑完，再往槽里塞我们的两件东西 ═══ */
     function mountInherit(ctx) {
       try { anchorJumpCtx = ctx } catch (e) { /* 忽略 */ }
+
+      try { disableUpstreamOptions() } catch (e) { report('options:mount', e) }
 
       try {
         var disposeRows = initEmptyTailHiding()
